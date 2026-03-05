@@ -1,0 +1,876 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>Zemi Motor Control</title>
+  <meta name="description" content="Panel de control remoto para motores DC vía MQTT — Zemi Tech Explorer" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap"
+    rel="stylesheet" />
+  <script src="mqtt.min.js"></script>
+  <style>
+    /* ─── Reset & Tokens ─────────────────────────────── */
+    *,
+    *::before,
+    *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    :root {
+      --bg-primary: #0a0e17;
+      --bg-card: rgba(15, 20, 35, 0.85);
+      --bg-card-hover: rgba(20, 28, 50, 0.9);
+      --border: rgba(100, 140, 255, 0.12);
+      --border-glow: rgba(100, 140, 255, 0.3);
+      --text-primary: #e8ecf4;
+      --text-secondary: #8892a8;
+      --text-muted: #555e72;
+      --accent: #6c8cff;
+      --accent-glow: rgba(108, 140, 255, 0.4);
+      --green: #34d399;
+      --green-glow: rgba(52, 211, 153, 0.35);
+      --red: #f87171;
+      --red-glow: rgba(248, 113, 113, 0.35);
+      --orange: #fbbf24;
+      --orange-glow: rgba(251, 191, 36, 0.35);
+      --cyan: #22d3ee;
+      --cyan-glow: rgba(34, 211, 238, 0.3);
+      --radius: 16px;
+      --radius-sm: 10px;
+      --shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+      --font: 'Inter', system-ui, sans-serif;
+      --mono: 'JetBrains Mono', monospace;
+      --transition: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    body {
+      font-family: var(--font);
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      min-height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      overflow-x: hidden;
+      -webkit-user-select: none;
+      user-select: none;
+    }
+
+    /* ─── Animated Background ────────────────────────── */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background:
+        radial-gradient(ellipse 600px 400px at 20% 20%, rgba(108, 140, 255, 0.08), transparent),
+        radial-gradient(ellipse 500px 500px at 80% 80%, rgba(34, 211, 238, 0.06), transparent),
+        radial-gradient(ellipse 400px 300px at 50% 50%, rgba(52, 211, 153, 0.04), transparent);
+      pointer-events: none;
+      z-index: 0;
+      animation: bgPulse 8s ease-in-out infinite alternate;
+    }
+
+    @keyframes bgPulse {
+      0% {
+        opacity: 0.6;
+      }
+
+      100% {
+        opacity: 1;
+      }
+    }
+
+    /* ─── Header ─────────────────────────────────────── */
+    .header {
+      position: relative;
+      z-index: 1;
+      width: 100%;
+      max-width: 480px;
+      padding: 32px 24px 0;
+      text-align: center;
+    }
+
+    .header__logo {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 6px;
+    }
+
+    .header__icon {
+      width: 38px;
+      height: 38px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, var(--accent), var(--cyan));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      box-shadow: 0 0 20px var(--accent-glow);
+    }
+
+    .header__title {
+      font-size: 22px;
+      font-weight: 800;
+      letter-spacing: -0.5px;
+      background: linear-gradient(135deg, var(--text-primary), var(--accent));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .header__subtitle {
+      font-size: 13px;
+      color: var(--text-secondary);
+      font-weight: 500;
+    }
+
+    /* ─── Status Bar ─────────────────────────────────── */
+    .status-bar {
+      position: relative;
+      z-index: 1;
+      width: 100%;
+      max-width: 480px;
+      padding: 16px 24px;
+    }
+
+    .status-card {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 14px 18px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      backdrop-filter: blur(20px);
+      transition: border-color var(--transition);
+    }
+
+    .status-card.connected {
+      border-color: var(--green);
+      box-shadow: 0 0 20px var(--green-glow);
+    }
+
+    .status-card.error {
+      border-color: var(--red);
+      box-shadow: 0 0 20px var(--red-glow);
+    }
+
+    .status-card.connecting {
+      border-color: var(--orange);
+      box-shadow: 0 0 20px var(--orange-glow);
+    }
+
+    .status-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--text-muted);
+      flex-shrink: 0;
+      transition: background var(--transition);
+    }
+
+    .status-card.connected .status-dot {
+      background: var(--green);
+      box-shadow: 0 0 8px var(--green);
+    }
+
+    .status-card.error .status-dot {
+      background: var(--red);
+      box-shadow: 0 0 8px var(--red);
+    }
+
+    .status-card.connecting .status-dot {
+      background: var(--orange);
+      box-shadow: 0 0 8px var(--orange);
+      animation: blink 1s infinite;
+    }
+
+    @keyframes blink {
+      50% {
+        opacity: 0.3;
+      }
+    }
+
+    .status-text {
+      font-size: 13px;
+      font-weight: 600;
+      flex: 1;
+    }
+
+    .status-detail {
+      font-size: 11px;
+      color: var(--text-secondary);
+      font-family: var(--mono);
+    }
+
+    /* ─── Command Display ────────────────────────────── */
+    .command-display {
+      position: relative;
+      z-index: 1;
+      width: 100%;
+      max-width: 480px;
+      padding: 0 24px 16px;
+    }
+
+    .command-card {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 18px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      backdrop-filter: blur(20px);
+    }
+
+    .command-label {
+      font-size: 12px;
+      color: var(--text-secondary);
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    .command-value {
+      font-size: 15px;
+      font-weight: 700;
+      font-family: var(--mono);
+      color: var(--cyan);
+      text-shadow: 0 0 12px var(--cyan-glow);
+      transition: all var(--transition);
+      min-width: 100px;
+      text-align: right;
+    }
+
+    /* ─── D-Pad Container ────────────────────────────── */
+    .controls {
+      position: relative;
+      z-index: 1;
+      width: 100%;
+      max-width: 480px;
+      padding: 8px 24px 24px;
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .dpad {
+      display: grid;
+      grid-template-columns: 90px 90px 90px;
+      grid-template-rows: 90px 90px 90px;
+      gap: 8px;
+      position: relative;
+    }
+
+    /* ─── Buttons ────────────────────────────────────── */
+    .btn {
+      border: none;
+      border-radius: var(--radius);
+      font-family: var(--font);
+      font-weight: 700;
+      font-size: 13px;
+      letter-spacing: 0.5px;
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      transition: all var(--transition);
+      position: relative;
+      overflow: hidden;
+      -webkit-tap-highlight-color: transparent;
+      touch-action: manipulation;
+    }
+
+    .btn::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      border-radius: inherit;
+      opacity: 0;
+      transition: opacity var(--transition);
+    }
+
+    .btn__icon {
+      font-size: 28px;
+      line-height: 1;
+      filter: drop-shadow(0 0 6px currentColor);
+      transition: transform var(--transition);
+    }
+
+    .btn__label {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      opacity: 0.8;
+    }
+
+    /* Direction Buttons */
+    .btn--dir {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      color: var(--text-primary);
+      backdrop-filter: blur(12px);
+    }
+
+    .btn--dir::before {
+      background: linear-gradient(135deg, var(--accent-glow), transparent);
+    }
+
+    .btn--dir:hover,
+    .btn--dir.active {
+      border-color: var(--accent);
+      box-shadow: 0 0 30px var(--accent-glow), inset 0 0 20px rgba(108, 140, 255, 0.1);
+      transform: scale(0.96);
+    }
+
+    .btn--dir:hover::before,
+    .btn--dir.active::before {
+      opacity: 1;
+    }
+
+    .btn--dir.active .btn__icon {
+      transform: scale(1.15);
+    }
+
+    /* Stop Button */
+    .btn--stop {
+      background: linear-gradient(135deg, rgba(248, 113, 113, 0.15), rgba(248, 113, 113, 0.05));
+      border: 1.5px solid rgba(248, 113, 113, 0.3);
+      color: var(--red);
+      border-radius: 50%;
+      width: 90px;
+      height: 90px;
+    }
+
+    .btn--stop::before {
+      background: radial-gradient(circle, var(--red-glow), transparent);
+    }
+
+    .btn--stop:hover,
+    .btn--stop.active {
+      border-color: var(--red);
+      box-shadow: 0 0 35px var(--red-glow), inset 0 0 25px rgba(248, 113, 113, 0.1);
+      transform: scale(0.94);
+    }
+
+    .btn--stop:hover::before,
+    .btn--stop.active::before {
+      opacity: 1;
+    }
+
+    /* Grid Positions */
+    .btn--up {
+      grid-column: 2;
+      grid-row: 1;
+    }
+
+    .btn--left {
+      grid-column: 1;
+      grid-row: 2;
+    }
+
+    .btn--stop {
+      grid-column: 2;
+      grid-row: 2;
+    }
+
+    .btn--right {
+      grid-column: 3;
+      grid-row: 2;
+    }
+
+    .btn--down {
+      grid-column: 2;
+      grid-row: 3;
+    }
+
+    /* ─── Log Section ────────────────────────────────── */
+    .log-section {
+      position: relative;
+      z-index: 1;
+      width: 100%;
+      max-width: 480px;
+      padding: 0 24px 24px;
+    }
+
+    .log-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      backdrop-filter: blur(20px);
+    }
+
+    .log-header {
+      padding: 12px 18px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .log-header__title {
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      color: var(--text-secondary);
+    }
+
+    .log-header__clear {
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      font-size: 11px;
+      font-family: var(--font);
+      font-weight: 600;
+      cursor: pointer;
+      padding: 4px 8px;
+      border-radius: 6px;
+      transition: all var(--transition);
+    }
+
+    .log-header__clear:hover {
+      color: var(--red);
+      background: rgba(248, 113, 113, 0.1);
+    }
+
+    .log-body {
+      padding: 12px 18px;
+      max-height: 160px;
+      overflow-y: auto;
+      font-family: var(--mono);
+      font-size: 12px;
+      line-height: 1.8;
+      color: var(--text-secondary);
+      scrollbar-width: thin;
+      scrollbar-color: var(--border) transparent;
+    }
+
+    .log-body::-webkit-scrollbar {
+      width: 4px;
+    }
+
+    .log-body::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    .log-body::-webkit-scrollbar-thumb {
+      background: var(--border);
+      border-radius: 2px;
+    }
+
+    .log-entry {
+      display: flex;
+      gap: 8px;
+      animation: fadeIn 0.3s ease;
+    }
+
+    .log-entry__time {
+      color: var(--text-muted);
+      flex-shrink: 0;
+    }
+
+    .log-entry__msg {
+      color: var(--text-secondary);
+    }
+
+    .log-entry--cmd .log-entry__msg {
+      color: var(--cyan);
+    }
+
+    .log-entry--ok .log-entry__msg {
+      color: var(--green);
+    }
+
+    .log-entry--err .log-entry__msg {
+      color: var(--red);
+    }
+
+    @keyframes fadeIn {
+      from {
+        opacity: 0;
+        transform: translateY(-4px);
+      }
+
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .log-empty {
+      color: var(--text-muted);
+      font-style: italic;
+    }
+
+    /* ─── Footer ─────────────────────────────────────── */
+    .footer {
+      position: relative;
+      z-index: 1;
+      padding: 16px 24px 24px;
+      text-align: center;
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    /* ─── Keyboard Hints ─────────────────────────────── */
+    .keyboard-hints {
+      position: relative;
+      z-index: 1;
+      width: 100%;
+      max-width: 480px;
+      padding: 0 24px 16px;
+      display: flex;
+      justify-content: center;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    .key-hint {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    .key-hint kbd {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 22px;
+      height: 22px;
+      padding: 0 6px;
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      font-family: var(--mono);
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--text-secondary);
+    }
+
+    /* ─── Responsive ─────────────────────────────────── */
+    @media (max-width: 400px) {
+      .dpad {
+        grid-template-columns: 78px 78px 78px;
+        grid-template-rows: 78px 78px 78px;
+        gap: 6px;
+      }
+
+      .btn--stop {
+        width: 78px;
+        height: 78px;
+      }
+
+      .btn__icon {
+        font-size: 24px;
+      }
+    }
+
+    @media (min-width: 600px) {
+      .dpad {
+        grid-template-columns: 100px 100px 100px;
+        grid-template-rows: 100px 100px 100px;
+        gap: 10px;
+      }
+
+      .btn--stop {
+        width: 100px;
+        height: 100px;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <!-- ── Header ────────────────────────────────────── -->
+  <header class="header">
+    <div class="header__logo">
+      <div class="header__icon">🚗</div>
+      <h1 class="header__title">Zemi Motor Control</h1>
+    </div>
+    <p class="header__subtitle">Control remoto vía MQTT</p>
+  </header>
+
+  <!-- ── Status ────────────────────────────────────── -->
+  <div class="status-bar">
+    <div id="statusCard" class="status-card">
+      <div class="status-dot"></div>
+      <span id="statusText" class="status-text">Desconectado</span>
+      <span id="statusDetail" class="status-detail">—</span>
+    </div>
+  </div>
+
+  <!-- ── Current Command ───────────────────────────── -->
+  <div class="command-display">
+    <div class="command-card">
+      <span class="command-label">Comando Actual</span>
+      <span id="currentCmd" class="command-value">— PARADO —</span>
+    </div>
+  </div>
+
+  <!-- ── D-Pad Controls ───────────────────────────── -->
+  <div class="controls">
+    <div class="dpad">
+      <button id="btnUp" class="btn btn--dir btn--up" data-cmd="F" aria-label="Adelante">
+        <span class="btn__icon">▲</span>
+        <span class="btn__label">Adelante</span>
+      </button>
+      <button id="btnLeft" class="btn btn--dir btn--left" data-cmd="L" aria-label="Izquierda">
+        <span class="btn__icon">◀</span>
+        <span class="btn__label">Izquierda</span>
+      </button>
+      <button id="btnStop" class="btn btn--stop" data-cmd="S" aria-label="Parar">
+        <span class="btn__icon">⏹</span>
+        <span class="btn__label">Parar</span>
+      </button>
+      <button id="btnRight" class="btn btn--dir btn--right" data-cmd="R" aria-label="Derecha">
+        <span class="btn__icon">▶</span>
+        <span class="btn__label">Derecha</span>
+      </button>
+      <button id="btnDown" class="btn btn--dir btn--down" data-cmd="B" aria-label="Atrás">
+        <span class="btn__icon">▼</span>
+        <span class="btn__label">Atrás</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- ── Keyboard Hints ───────────────────────────── -->
+  <div class="keyboard-hints">
+    <div class="key-hint"><kbd>W</kbd> Adelante</div>
+    <div class="key-hint"><kbd>A</kbd> Izquierda</div>
+    <div class="key-hint"><kbd>S</kbd> Atrás</div>
+    <div class="key-hint"><kbd>D</kbd> Derecha</div>
+    <div class="key-hint"><kbd>Space</kbd> Parar</div>
+  </div>
+
+  <!-- ── Log ──────────────────────────────────────── -->
+  <div class="log-section">
+    <div class="log-card">
+      <div class="log-header">
+        <span class="log-header__title">📋 Registro</span>
+        <button id="logClear" class="log-header__clear">Limpiar</button>
+      </div>
+      <div id="logBody" class="log-body">
+        <div class="log-empty">Sin actividad</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Footer ───────────────────────────────────── -->
+  <footer class="footer">Zemi Tech Explorer © 2026</footer>
+
+  <!-- ── App Logic ────────────────────────────────── -->
+  <script>
+    // ─── Config ───────────────────────────────────────
+    const CONFIG = {
+      broker: 'wss://b1439a9c1a134c51be1ef17aa3c3cd62.s1.eu.hivemq.cloud:8884/mqtt',
+      user: 'public',
+      pass: 'Admin123',
+      clientId: `ZemiWeb_${Math.random().toString(16).slice(2, 8)}`,
+      topicCmd: 'zemi/motores/cmd',
+      topicStatus: 'zemi/motores/status',
+    };
+
+    // ─── Command Map ──────────────────────────────────
+    const CMD_LABELS = {
+      F: '⬆ ADELANTE',
+      B: '⬇ ATRÁS',
+      L: '⬅ IZQUIERDA',
+      R: '➡ DERECHA',
+      S: '— PARADO —',
+    };
+
+    const KEY_MAP = {
+      w: 'F', arrowup: 'F',
+      s: 'B', arrowdown: 'B',
+      a: 'L', arrowleft: 'L',
+      d: 'R', arrowright: 'R',
+      ' ': 'S',
+    };
+
+    // ─── DOM ──────────────────────────────────────────
+    const $ = (id) => document.getElementById(id);
+    const statusCard = $('statusCard');
+    const statusText = $('statusText');
+    const statusDetail = $('statusDetail');
+    const currentCmd = $('currentCmd');
+    const logBody = $('logBody');
+    const buttons = document.querySelectorAll('[data-cmd]');
+
+    // ─── Logging ──────────────────────────────────────
+    let logEmpty = true;
+
+    function addLog(msg, type = '') {
+      if (logEmpty) {
+        logBody.innerHTML = '';
+        logEmpty = false;
+      }
+
+      const time = new Date().toLocaleTimeString('es-ES', { hour12: false });
+      const entry = document.createElement('div');
+      entry.className = `log-entry ${type ? `log-entry--${type}` : ''}`;
+      entry.innerHTML = `<span class="log-entry__time">${time}</span><span class="log-entry__msg">${msg}</span>`;
+      logBody.prepend(entry);
+
+      // Limitar a 50 entradas
+      while (logBody.children.length > 50) logBody.lastChild.remove();
+    }
+
+    $('logClear').addEventListener('click', () => {
+      logBody.innerHTML = '<div class="log-empty">Sin actividad</div>';
+      logEmpty = true;
+    });
+
+    // ─── MQTT Connection ──────────────────────────────
+    let client = null;
+    let lastCmd = 'S';
+
+    function setStatus(state, text, detail = '') {
+      statusCard.className = `status-card ${state}`;
+      statusText.textContent = text;
+      statusDetail.textContent = detail || '—';
+    }
+
+    function connect() {
+      setStatus('connecting', 'Conectando...', CONFIG.broker.replace('wss://', ''));
+      addLog('Intentando conexión MQTT...');
+
+      client = mqtt.connect(CONFIG.broker, {
+        username: CONFIG.user,
+        password: CONFIG.pass,
+        clientId: CONFIG.clientId,
+        protocolVersion: 5,
+        clean: true,
+        reconnectPeriod: 5000,
+        connectTimeout: 10000,
+        rejectUnauthorized: false,
+      });
+
+      client.on('connect', () => {
+        setStatus('connected', 'Conectado', `ID: ${CONFIG.clientId.slice(-6)}`);
+        addLog('✅ Conectado a HiveMQ Cloud', 'ok');
+        client.subscribe(CONFIG.topicStatus, { qos: 1 });
+      });
+
+      client.on('reconnect', () => {
+        setStatus('connecting', 'Reconectando...');
+        addLog('🔄 Reconectando...');
+      });
+
+      client.on('error', (err) => {
+        setStatus('error', 'Error de conexión', err.message || '');
+        addLog(`❌ Error: ${err.message}`, 'err');
+      });
+
+      client.on('offline', () => {
+        setStatus('error', 'Sin conexión');
+        addLog('⚠️ Conexión perdida', 'err');
+      });
+
+      client.on('message', (topic, payload) => {
+        if (topic === CONFIG.topicStatus) {
+          try {
+            const data = JSON.parse(payload.toString());
+            if (data.status === 'online') {
+              addLog('🤖 ESP32 conectado', 'ok');
+            } else if (data.ok) {
+              addLog(`✓ ESP32 confirmó: ${CMD_LABELS[data.cmd] || data.cmd}`, 'ok');
+            }
+          } catch {
+            addLog(`📨 ${payload.toString()}`);
+          }
+        }
+      });
+    }
+
+    // ─── Send Command ─────────────────────────────────
+    function sendCommand(cmd) {
+      if (!client || !client.connected) {
+        addLog('❌ No hay conexión MQTT', 'err');
+        return;
+      }
+
+      if (cmd === lastCmd && cmd !== 'S') return; // Evitar spam del mismo comando
+      lastCmd = cmd;
+
+      client.publish(CONFIG.topicCmd, cmd, { qos: 1 });
+      currentCmd.textContent = CMD_LABELS[cmd] || cmd;
+      addLog(`📤 Enviado: ${CMD_LABELS[cmd] || cmd}`, 'cmd');
+
+      // Visual feedback en botones
+      buttons.forEach((b) => {
+        b.classList.toggle('active', b.dataset.cmd === cmd);
+      });
+    }
+
+    // ─── Button Events (touch + mouse) ───────────────
+    buttons.forEach((btn) => {
+      const cmd = btn.dataset.cmd;
+
+      // Touch
+      btn.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        sendCommand(cmd);
+      }, { passive: false });
+
+      btn.addEventListener('touchend', (e) => {
+        e.preventDefault();
+        if (cmd !== 'S') sendCommand('S');
+      }, { passive: false });
+
+      // Mouse
+      btn.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        sendCommand(cmd);
+      });
+
+      btn.addEventListener('mouseup', (e) => {
+        e.preventDefault();
+        if (cmd !== 'S') sendCommand('S');
+      });
+
+      btn.addEventListener('mouseleave', () => {
+        if (btn.classList.contains('active') && cmd !== 'S') {
+          sendCommand('S');
+        }
+      });
+    });
+
+    // ─── Keyboard Controls ────────────────────────────
+    const pressedKeys = new Set();
+
+    document.addEventListener('keydown', (e) => {
+      const key = e.key.toLowerCase();
+      const cmd = KEY_MAP[key];
+      if (!cmd || pressedKeys.has(key)) return;
+      e.preventDefault();
+      pressedKeys.add(key);
+      sendCommand(cmd);
+    });
+
+    document.addEventListener('keyup', (e) => {
+      const key = e.key.toLowerCase();
+      if (!KEY_MAP[key]) return;
+      e.preventDefault();
+      pressedKeys.delete(key);
+      if (pressedKeys.size === 0) sendCommand('S');
+    });
+
+    // ─── Init ─────────────────────────────────────────
+    connect();
+  </script>
+</body>
+
+</html>
